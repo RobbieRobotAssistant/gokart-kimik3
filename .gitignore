@@ -1,2 +1,5 @@
 osm_raw.xml
 satellite.jpg
+
+.vercel
+.env*
