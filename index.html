@@ -50,6 +50,24 @@
   #bigmap { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(5,15,35,.72); z-index:12; }
   #bigmapcanvas { width:760px; height:760px; max-width:92vmin; max-height:92vmin; border-radius:16px; background:#20301c; box-shadow:0 10px 50px rgba(0,0,0,.6); }
   #attrib { position:fixed; bottom:4px; right:8px; font-size:10px; color:rgba(255,255,255,.55); z-index:5; text-shadow:0 1px 2px rgba(0,0,0,.5); }
+  html, body { touch-action:none; overscroll-behavior:none; }
+  #touchui { display:none; }
+  body.touch.driving #touchui { display:block; }
+  body.touch #help { display:none; }
+  #joybase { position:fixed; width:120px; height:120px; border-radius:50%; background:rgba(255,255,255,.12); border:2px solid rgba(255,255,255,.3); display:none; z-index:9; pointer-events:none; }
+  #joynub { position:absolute; width:52px; height:52px; border-radius:50%; background:rgba(255,255,255,.5); left:34px; top:34px; }
+  #tbtns { position:fixed; right:14px; bottom:16px; display:flex; flex-direction:column; align-items:flex-end; gap:12px; z-index:9; }
+  .tbtn { width:74px; height:74px; border-radius:50%; background:rgba(255,255,255,.14); border:2px solid rgba(255,255,255,.35); color:#fff; font-weight:800; font-size:13px; display:flex; align-items:center; justify-content:center; text-shadow:0 1px 3px rgba(0,0,0,.6); user-select:none; -webkit-user-select:none; }
+  .tbtn.big { width:92px; height:92px; font-size:16px; background:rgba(46,204,113,.25); border-color:rgba(46,204,113,.6); }
+  .tbtn.on { background:rgba(255,225,77,.45); border-color:#ffe14d; }
+  @media (pointer:coarse){
+    #minimap { width:120px; height:120px; }
+    #speed { font-size:36px; }
+    #roadname { top:56px; font-size:16px; }
+    #racehud #lap { font-size:22px; }
+    #racehud #times { font-size:12px; }
+    #item { top:150px; min-width:90px; padding:8px 10px; }
+  }
 </style>
 </head>
 <body>
@@ -72,6 +90,14 @@
 <div id="item"><span class="icon">?</span><span id="itemname"></span></div>
 <div id="count" style="display:none"></div>
 <div id="bigmap"><canvas id="bigmapcanvas" width="760" height="760"></canvas></div>
+<div id="touchui">
+  <div id="joybase"><div id="joynub"></div></div>
+  <div id="tbtns">
+    <div class="tbtn" id="btn-drift">DRIFT</div>
+    <div class="tbtn" id="btn-brake">BRAKE</div>
+    <div class="tbtn big" id="btn-gas">GAS</div>
+  </div>
+</div>
 <div id="attrib">Map data © OpenStreetMap contributors · Imagery © Esri, Maxar, Earthstar Geographics</div>
 <div id="menu" style="display:none">
   <div class="panel">
@@ -79,7 +105,11 @@
     <p class="sub">9704 Montauk Ave, Bethesda, MD — 1.64 km circuit: Montauk → Stoneham → Ashburton → Lone Oak</p>
     <div class="row" id="colors"></div>
     <div class="row" id="styles"></div>
-    <p class="hint"><b>ENTER</b> start race (3 laps) &nbsp;&nbsp; <b>F</b> free roam</p>
+    <div class="row" style="margin-top:14px">
+      <div class="stylebtn" id="btn-race">START RACE</div>
+      <div class="stylebtn" id="btn-free">FREE ROAM</div>
+    </div>
+    <p class="hint" id="menuhint"><b>ENTER</b> start race (3 laps) &nbsp;&nbsp; <b>F</b> free roam</p>
     <p class="hint2">← → kart color &nbsp; ↑ ↓ body style</p>
     <p class="hint2" id="ghostbest"></p>
   </div>
@@ -88,6 +118,10 @@
   <div class="panel">
     <h1>RACE COMPLETE</h1>
     <div id="laplist"></div>
+    <div class="row" style="justify-content:center; margin-top:14px">
+      <div class="stylebtn" id="btn-again">RACE AGAIN</div>
+      <div class="stylebtn" id="btn-tomenu">MENU</div>
+    </div>
     <p class="hint"><b>ENTER</b> race again &nbsp;&nbsp; <b>M</b> menu</p>
   </div>
 </div>
@@ -1180,18 +1214,8 @@ async function main(){
       return;
     }
     if (keymap[e.code]){ keys[keymap[e.code]] = true; e.preventDefault(); }
-    if (e.code === 'Tab'){
-      bigmapOpen = !bigmapOpen;
-      document.getElementById('bigmap').style.display = bigmapOpen ? 'flex' : 'none';
-      e.preventDefault();
-    }
-    if (e.code === 'KeyE' && heldItem && rouletteT <= 0){
-      if (heldItem === 'mushroom') boostT = Math.max(boostT, 1.6);
-      else if (heldItem === 'golden') boostT = Math.max(boostT, 3.2);
-      else if (heldItem === 'star') starT = Math.max(starT, 6);
-      heldItem = null;
-      AudioSys.boost();
-    }
+    if (e.code === 'Tab'){ toggleBigmap(); e.preventDefault(); }
+    if (e.code === 'KeyE') useItem();
     if (e.code === 'KeyR'){
       if (gameState === 'racing'){
         const idx = (gatesPassed - 1) % NGates;
@@ -1202,6 +1226,91 @@ async function main(){
     if (e.code === 'KeyH'){ const h = document.getElementById('help'); h.style.display = h.style.display === 'none' ? 'block' : 'none'; }
   });
   window.addEventListener('keyup', e => { if (keymap[e.code]){ keys[keymap[e.code]] = false; e.preventDefault(); } });
+
+  const touchState = { steer: 0, gas: false, brake: false, drift: false, joyId: null, joyOx: 0, joyOy: 0 };
+  const isTouch = new URLSearchParams(location.search).has('touch') ||
+    (window.matchMedia && matchMedia('(pointer: coarse)').matches) ||
+    'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  if (isTouch){
+    document.body.classList.add('touch');
+    document.getElementById('menuhint').innerHTML = 'left thumb steer &nbsp;·&nbsp; right thumb pedals';
+  }
+  window.addEventListener('touchstart', () => {
+    document.body.classList.add('touch');
+    AudioSys.init();
+  }, { once: true });
+
+  const joybase = document.getElementById('joybase'), joynub = document.getElementById('joynub');
+  window.addEventListener('touchstart', e => {
+    for (const t of e.changedTouches){
+      if (touchState.joyId === null && t.clientX < window.innerWidth * 0.45 && t.clientY > window.innerHeight * 0.35){
+        touchState.joyId = t.identifier;
+        touchState.joyOx = t.clientX; touchState.joyOy = t.clientY;
+        joybase.style.display = 'block';
+        joybase.style.left = (t.clientX - 60) + 'px';
+        joybase.style.top = (t.clientY - 60) + 'px';
+        e.preventDefault();
+      }
+    }
+  }, { passive: false });
+  window.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches){
+      if (t.identifier === touchState.joyId){
+        const dx = t.clientX - touchState.joyOx;
+        touchState.steer = Math.max(-1, Math.min(1, -dx / 70));
+        joynub.style.left = (34 + Math.max(-34, Math.min(34, dx))) + 'px';
+        e.preventDefault();
+      }
+    }
+  }, { passive: false });
+  const joyEnd = e => {
+    for (const t of e.changedTouches){
+      if (t.identifier === touchState.joyId){
+        touchState.joyId = null;
+        touchState.steer = 0;
+        joybase.style.display = 'none';
+        joynub.style.left = '34px';
+      }
+    }
+  };
+  window.addEventListener('touchend', joyEnd);
+  window.addEventListener('touchcancel', joyEnd);
+
+  function bindBtn(id, prop){
+    const el = document.getElementById(id);
+    const on = e => { touchState[prop] = true; el.classList.add('on'); AudioSys.init(); e.preventDefault(); };
+    const off = e => { touchState[prop] = false; el.classList.remove('on'); e.preventDefault(); };
+    el.addEventListener('touchstart', on, { passive: false });
+    el.addEventListener('touchend', off, { passive: false });
+    el.addEventListener('touchcancel', off, { passive: false });
+    el.addEventListener('mousedown', on);
+    el.addEventListener('mouseup', off);
+    el.addEventListener('mouseleave', off);
+  }
+  bindBtn('btn-gas', 'gas');
+  bindBtn('btn-brake', 'brake');
+  bindBtn('btn-drift', 'drift');
+
+  function useItem(){
+    if (heldItem && rouletteT <= 0){
+      if (heldItem === 'mushroom') boostT = Math.max(boostT, 1.6);
+      else if (heldItem === 'golden') boostT = Math.max(boostT, 3.2);
+      else if (heldItem === 'star') starT = Math.max(starT, 6);
+      heldItem = null;
+      AudioSys.boost();
+    }
+  }
+  function toggleBigmap(){
+    bigmapOpen = !bigmapOpen;
+    document.getElementById('bigmap').style.display = bigmapOpen ? 'flex' : 'none';
+  }
+  document.getElementById('item').addEventListener('touchstart', e => { useItem(); e.preventDefault(); }, { passive: false });
+  document.getElementById('minimap').addEventListener('touchstart', e => { toggleBigmap(); e.preventDefault(); }, { passive: false });
+  document.getElementById('bigmap').addEventListener('touchstart', e => { if (bigmapOpen){ toggleBigmap(); e.preventDefault(); } }, { passive: false });
+  document.getElementById('btn-race').addEventListener('click', () => { AudioSys.init(); startRace(); });
+  document.getElementById('btn-free').addEventListener('click', () => { AudioSys.init(); startFreeRoam(); });
+  document.getElementById('btn-again').addEventListener('click', () => { AudioSys.init(); startRace(); });
+  document.getElementById('btn-tomenu').addEventListener('click', () => showMenu());
 
   const P = {
     engine: 17, vmax: 31, brake: 30, reverse: 11, vrev: 7.5,
@@ -1224,9 +1333,9 @@ async function main(){
     const offroad = (!road || road.d > road.hw + 1.0) && starT <= 0;
 
     const driving = gameState === 'racing' || gameState === 'freeroam';
-    const th = (driving && keys.up) ? 1 : 0;
-    const braking = driving && keys.down;
-    const drifting = driving && keys.drift && Math.abs(K.sf) > 6;
+    const th = (driving && (keys.up || touchState.gas)) ? 1 : 0;
+    const braking = driving && (keys.down || touchState.brake);
+    const drifting = driving && (keys.drift || touchState.drift) && Math.abs(K.sf) > 6;
 
     const vmaxNow = P.vmax * (boostT > 0 ? 1.45 : 1) * (starT > 0 ? 1.18 : 1);
     let acc = th * P.engine * (starT > 0 ? 1.2 : 1) * Math.max(0, 1 - K.sf / vmaxNow);
@@ -1240,7 +1349,7 @@ async function main(){
     K.sf += acc * dt;
     if (Math.abs(K.sf) < 0.12 && !th && !braking) K.sf = 0;
 
-    const steerInput = ((driving && keys.left) ? 1 : 0) - ((driving && keys.right) ? 1 : 0);
+    const steerInput = Math.abs(touchState.steer) > 0.06 ? touchState.steer : (((driving && keys.left) ? 1 : 0) - ((driving && keys.right) ? 1 : 0));
     const steerEff = P.steerMax / (1 + (K.sf/13.5)*(K.sf/13.5)) * (drifting ? 1.3 : 1);
     const steerRate = steerInput !== 0 ? 4.5 : 7.5;
     K.steer += (steerInput * steerEff - K.steer) * Math.min(1, dt * steerRate);
@@ -1372,8 +1481,9 @@ async function main(){
     }
 
     if (crashFlag){ AudioSys.crash(); crashFlag = false; }
-    const driving = gameState === 'racing' || gameState === 'freeroam';
-    AudioSys.engine(Math.abs(K.sf), (driving && keys.up) ? 1 : 0, driving);
+    const driving = gameState === 'racing' || gameState === 'freeroam' || gameState === 'countdown';
+    document.body.classList.toggle('driving', driving);
+    AudioSys.engine(Math.abs(K.sf), (driving && (keys.up || touchState.gas)) ? 1 : 0, driving);
     AudioSys.drift(driving && state.drifting);
 
     boostT = Math.max(0, boostT - dt);

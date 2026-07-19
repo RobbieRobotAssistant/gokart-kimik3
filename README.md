@@ -20,17 +20,9 @@ one self-contained file. No server, no build, works from `file://`.
 
 ## Controls
 
-| Key | Action |
-|---|---|
-| W / ↑ | accelerate |
-| S / ↓ | brake / reverse |
-| A D / ← → | steer |
-| Space | drift |
-| E | use item |
-| R | reset (last gate in race) |
-| Tab | full-screen map |
-| M | menu |
-| H | help |
+Desktop: **W/↑** accelerate · **S/↓** brake/reverse · **A D/← →** steer · **Space** drift · **E** item · **R** reset · **Tab** map · **M** menu · **H** help
+
+Mobile (auto-detected): left-thumb floating analog stick to steer, **GAS / BRAKE / DRIFT** buttons on the right, tap the item panel to use items, tap the minimap for full-screen map. Force touch UI on desktop with `?touch`.
 
 Debug: append `?demo` (auto-drive free roam), `?race` (auto-start race), `&warp=N` (spawn at gate N).
 
